@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Black Ops 3: Zombie Outbreak & Gunsmith</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+        body, html { width: 100%; height: 100%; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #000; color: #fff; }
+        #canvas-container { width: 100%; height: 100%; position: absolute; top: 0; left: 0; z-index: 1; }
+        
+        /* UI Overlay */
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; pointer-events: none; }
+        
+        /* HUD Elements */
+        .hud-panel { position: absolute; padding: 15px 25px; background: rgba(0,0,0,0.65); border: 2px solid #ff4500; border-radius: 8px; font-weight: bold; font-size: 20px; box-shadow: 0 0 15px rgba(255, 69, 0, 0.4); text-shadow: 2px 2px 4px #000; }
+        #health-hud { top: 20px; left: 20px; color: #00ffcc; }
+        #score-hud { top: 20px; right: 20px; color: #ffd700; font-size: 26px; }
+        #wave-hud { top: 80px; right: 20px; color: #ff3333; font-size: 28px; }
+        #ammo-hud { bottom: 20px; right: 20px; color: #fff; font-size: 32px; border-color: #555; }
+        #interact-prompt { bottom: 120px; left: 50%; transform: translateX(-50%); color: #ffff00; font-size: 22px; background: rgba(0,0,0,0.8); padding: 10px 20px; border-radius: 5px; display: none; border: 1px solid #ffff00; }
+        #controller-status { bottom: 20px; left: 20px; font-size: 14px; color: #888; border-color: #333; }
+        
+        /* Crosshair */
+        #crosshair { position: absolute; top: 50%; left: 50%; width: 12px; height: 12px; transform: translate(-50%, -50%); pointer-events: none; }
+        #crosshair::before, #crosshair::after { content: ''; position: absolute; background: rgba(255, 255, 255, 0.8); }
+        #crosshair::before { top: 5px; left: -8px; width: 28px; height: 2px; }
+        #crosshair::after { top: -8px; left: 5px; width: 2px; height: 28px; }
+
+        /* Menus */
+        .menu-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(10, 10, 15, 0.92); z-index: 100; display: flex; flex-direction: column; justify-content: center; align-items: center; pointer-events: auto; }
+        .menu-title { font-size: 48px; color: #ff4500; text-transform: uppercase; margin-bottom: 20px; text-shadow: 0 0 20px #ff4500; text-align: center; }
+        .btn { padding: 12px 35px; margin: 10px; font-size: 20px; font-weight: bold; color: #fff; background: linear-gradient(45deg, #222, #444); border: 2px solid #ff4500; border-radius: 6px; cursor: pointer; transition: all 0.2s; min-width: 220px; text-align: center; }
+        .btn:hover { background: #ff4500; color: #000; box-shadow: 0 0 15px #ff4500; transform: scale(1.05); }
+
+        /* Gunsmith Modal */
+        #gunsmith-menu { display: none; }
+        .gunsmith-container { display: flex; gap: 30px; background: rgba(20,20,30,0.95); padding: 30px; border-radius: 12px; border: 2px solid #00ffcc; box-shadow: 0 0 30px rgba(0, 255, 204, 0.3); }
+        .gun-selector, .attachment-panel { display: flex; flex-direction: column; gap: 10px; }
+        .opt-btn { background: #111; border: 1px solid #555; color: #ccc; padding: 8px 15px; border-radius: 4px; cursor: pointer; text-align: right; }
+        .opt-btn.active { border-color: #00ffcc; color: #00ffcc; background: #003333; }
+    </style>
+    <!-- Three.js 3D Engine -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+
+    <div id="ui-layer">
+        <div id="crosshair"></div>
+        <div id="health-hud" class="hud-panel">الصحة: <span id="hp-val">100</span></div>
+        <div id="score-hud" class="hud-panel">النقاط: <span id="score-val">500</span></div>
+        <div id="wave-hud" class="hud-panel">الجولة: <span id="wave-val">1</span></div>
+        <div id="ammo-hud" class="hud-panel"><span id="ammo-clip">30</span> / <span id="ammo-reserve">150</span></div>
+        <div id="interact-prompt">اضغط [E] أو [مربع/Square] لفتح الباب (750 نقطة)</div>
+        <div id="controller-status" class="hud-panel">اليد: غير متصلة (استخدم الكيبورد/الماوس)</div>
+    </div>
+
+    <!-- Main Menu -->
+    <div id="main-menu" class="menu-overlay">
+        <h1 class="menu-title">طور الزومبي: زحف الأموات</h1>
+        <button class="btn" onclick="startGame()">بدء اللعبة</button>
+        <button class="btn" onclick="openGunsmith()">تعديل الأسلحة (Gunsmith)</button>
+    </div>
+
+    <!-- Gunsmith Menu -->
+    <div id="gunsmith-menu" class="menu-overlay">
+        <h1 class="menu-title" style="color:#00ffcc;">تعديل الأسلحة (Modern Gunsmith)</h1>
+        <div class="gunsmith-container">
+            <div class="gun-selector">
+                <h3>اختر السلاح</h3>
+                <button class="opt-btn active" onclick="selectWeapon('rifle')">بندقية هجومية M4</button>
+                <button class="opt-btn" onclick="selectWeapon('smg')">رشاش سريع MP5</button>
+                <button class="opt-btn" onclick="selectWeapon('shotgun')">شوتجن Shotgun</button>
+            </div>
+            <div class="attachment-panel">
+                <h3>المرفقات والتعديلات</h3>
+                <label>المنظار (Scope):</label>
+                <button class="opt-btn active" id="scope-btn" onclick="toggleAttachment('scope')">منظار نقطة حمراء (Red Dot)</button>
+                <label>الكاتم (Suppressor):</label>
+                <button class="opt-btn" id="supp-btn" onclick="toggleAttachment('suppressor')">مكاتم صوت (Silent)</button>
+                <label>الخزان (Magazine):</label>
+                <button class="opt-btn" id="mag-btn" onclick="toggleAttachment('extendedMag')">خزان ممتد (+15 طلقة)</button>
+            </div>
+        </div>
+        <button class="btn" style="margin-top:20px;" onclick="closeGunsmith()">حفظ والعودة</button>
+    </div>
+
+    <script>
+        // --- GAME LOGIC & THREE.JS ENGINE ---
+        let scene, camera, renderer;
+        let player = { hp: 100, score: 500, points: 500, pos: new THREE.Vector3(0, 1.6, 0), rotY: 0, rotX: 0 };
+        let gameActive = false, wave = 1, zombiesToSpawn = 5, zombiesKilled = 0;
+        let zombies = [], doors = [], bullets = [];
+        let gamepadIndex = null;
+
+        // Weapons Config (50+ Config combinations possible via attachments)
+        let weapons = {
+            rifle: { name: 'M4 Rifle', damage: 35, ammo: 30, maxAmmo: 30, reserve: 150, fireRate: 150, lastShot: 0, scope: true, suppressor: false, extendedMag: false },
+            smg: { name: 'MP5 SMG', damage: 22, ammo: 40, maxAmmo: 40, reserve: 200, fireRate: 90, lastShot: 0, scope: false, suppressor: false, extendedMag: false },
+            shotgun: { name: 'Shotgun', damage: 90, ammo: 8, maxAmmo: 8, reserve: 40, fireRate: 600, lastShot: 0, scope: false, suppressor: false, extendedMag: false }
+        };
+        let currentWeaponKey = 'rifle';
+
+        // Initialize 3D World
+        function initEngine() {
+            const container = document.getElementById('canvas-container');
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x050508, 0.05);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 1.6, 0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            container.appendChild(renderer.domElement);
+
+            // Ambient & Flashlight
+            const ambient = new THREE.AmbientLight(0x222233);
+            scene.add(ambient);
+
+            const flashLight = new THREE.SpotLight(0xffffff, 1.5, 40, Math.PI/6, 0.5);
+            flashLight.position.set(0, 1.6, 0);
+            camera.add(flashLight);
+            scene.add(camera);
+
+            buildMap();
+            setupControls();
+            setupGamepad();
+
+            window.addEventListener('resize', onWindowResize);
+            animate();
+        }
+
+        // Build Zombies Map with Buyable Doors
+        function buildMap() {
+            // Floor
+            const floorGeo = new THREE.PlaneGeometry(100, 100);
+            const floorMat = new THREE.MeshStandardMaterial({ color: 0x111115, roughness: 0.8 });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            scene.add(floor);
+
+            // Starting Room Walls
+            createWall(0, 5, -20, 40, 10, 1); // Back
+            createWall(-20, 5, 0, 1, 10, 40);  // Left
+            createWall(20, 5, 0, 1, 10, 40);   // Right
+
+            // Buyable Door blocking Section 2
+            createDoor(0, 4, 10, 12, 8, 750);
+        }
+
+        function createWall(x, y, z, w, h, d) {
+            const geo = new THREE.BoxGeometry(w, h, d);
+            const mat = new THREE.MeshStandardMaterial({ color: 
+
+
